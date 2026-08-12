@@ -6,7 +6,7 @@ import requests
 
 # 頁面基本設定
 st.set_page_config(
-    page_title="亞太區宏觀經濟與消費力分析看板 | APAC Macro & Consumption Dashboard",
+    page_title="亞太區宏觀經濟與消費力 analysis 看板 | APAC Macro & Consumption Dashboard",
     page_icon="💎",
     layout="wide"
 )
@@ -54,10 +54,18 @@ st.sidebar.header(t["sidebar_header"])
 # 抓取世界銀行真實數據的函數
 @st.cache_data(ttl=86400)
 def fetch_world_bank_data():
+    # 完整保留你指定的國家名單
     countries = {
-        "Singapore": "SGP", "Thailand": "THA", "Vietnam": "VNM", 
-        "Indonesia": "IDN", "Malaysia": "MYS", "Philippines": "PHL",
-        "China": "CHN", "Hong Kong SAR": "HKG", "Japan": "JPN", "Australia": "AUS"
+        "Singapore": "SGP", 
+        "Thailand": "THA", 
+        "Vietnam": "VNM", 
+        "Indonesia": "IDN", 
+        "Malaysia": "MYS", 
+        "Philippines": "PHL",
+        "China": "CHN", 
+        "Hong Kong SAR": "HKG", 
+        "Japan": "JPN", 
+        "Australia": "AUS"
     }
     
     indicators = {
@@ -104,29 +112,9 @@ def fetch_world_bank_data():
 with st.spinner("正在載入 API 真實數據..."):
     df_wb = fetch_world_bank_data()
 
-# 若 API 失敗時的備用參考數據
-if df_wb.empty:
-    years = [2018, 2019, 2020, 2021, 2022, 2023]
-    fallback_data = []
-    base_data = [
-        ("Singapore", 5600000, 64000), ("Thailand", 71500000, 7800),
-        ("Vietnam", 95500000, 3500), ("Indonesia", 268000000, 4100),
-        ("Malaysia", 32000000, 11000), ("Philippines", 106000000, 3500),
-        ("China", 1400000000, 12500), ("Hong Kong SAR", 7400000, 49000),
-        ("Japan", 125000000, 34000), ("Australia", 25500000, 60000)
-    ]
-    for c, p, g in base_data:
-        for idx, y in enumerate(years):
-            fallback_data.append({
-                "Country": c, "Year": y,
-                "Population": p + idx * 50000,
-                "GDP_per_Capita": g + idx * 500
-            })
-    df_wb = pd.DataFrame(fallback_data)
-
 # 多選國家過濾
 all_countries_list = list(df_wb["Country"].unique())
-default_selection = ["Singapore", "Thailand", "Vietnam", "Indonesia", "Hong Kong SAR"]
+default_selection = ["Singapore", "Hong Kong SAR", "China", "Vietnam", "Australia"]
 
 selected_countries = st.sidebar.multiselect(
     t["country_label"],
@@ -143,14 +131,14 @@ else:
 # 核心指標
 st.subheader("📊 選定區域宏觀指標摘要")
 col1, col2, col3 = st.columns(3)
-latest_year = df_filtered["Year"].max()
-df_latest = df_filtered[df_filtered["Year"] == latest_year]
+latest_year = df_filtered["Year"].max() if not df_filtered.empty else 2023
+df_latest = df_filtered[df_filtered["Year"] == latest_year] if not df_filtered.empty else pd.DataFrame()
 
-total_pop = df_latest["Population"].sum()
-avg_gdp = df_latest["GDP_per_Capita"].mean()
+total_pop = df_latest["Population"].sum() if not df_latest.empty else 0
+avg_gdp = df_latest["GDP_per_Capita"].mean() if not df_latest.empty else 0
 
-col1.metric(t["metric_pop"], f"{total_pop:,.0f}" if not pd.isna(total_pop) else "N/A")
-col2.metric(t["metric_gdp"], f"${avg_gdp:,.0f} USD" if not pd.isna(avg_gdp) else "N/A")
+col1.metric(t["metric_pop"], f"{total_pop:,.0f}" if total_pop > 0 else "N/A")
+col2.metric(t["metric_gdp"], f"${avg_gdp:,.0f} USD" if avg_gdp > 0 else "N/A")
 col3.metric("對比國家數量 / Compared", f"{len(selected_countries)} 個")
 
 st.divider()
@@ -179,4 +167,10 @@ with st.expander(t["table_title"]):
 
 # 頁尾來源標註
 st.markdown("---")
-st.markdown(f"### {t['source_title']}\n- {t['source_desc']}\n- 🌐 數據來源：[World Bank Open Data](https://data.worldbank.org/ )")
+st.markdown(f"""
+### {t['source_title']}
+- **{t['source_desc']}**
+- 🌐 數據來源機構：[World Bank Open Data (世界銀行開放數據)](https://data.worldbank.org/ )
+- 📊 擷取指標：總人口數 (`SP.POP.TOTL`)、人均 GDP (`NY.GDP.PCAP.CD`)
+- 💡 *Created by Senior Product Manager & Python Developer | Hosted on Streamlit Cloud & GitHub*
+""")
