@@ -6,7 +6,7 @@ import requests
 
 # 頁面基本設定
 st.set_page_config(
-    page_title="東南亞宏觀經濟與消費力分析看板 | Southeast Asia Macro & Consumption Dashboard",
+    page_title="亞太區宏觀經濟與消費力分析看板 | APAC Macro & Consumption Dashboard",
     page_icon="💎",
     layout="wide"
 )
@@ -14,15 +14,14 @@ st.set_page_config(
 # 多語言字典
 LANG = {
     "zh": {
-        "title": "💎 東南亞宏觀經濟與消費潛力分析看板",
-        "intro": "本工具串接**世界銀行 (World Bank) 開放 API**，分析東南亞核心國家（新加坡、泰國、越南、印尼、馬來西亞、菲律賓）的人口總量與人均 GDP 趨勢，為珠寶及高端消費品市場開發提供數據支撐。",
+        "title": "💎 亞太區宏觀經濟與消費潛力分析看板 (東南亞 + 中港日澳)",
+        "intro": "本工具串接**世界銀行 (World Bank) 開放 API**，分析東南亞核心國家與亞太主要經濟體（中國、香港、日本、澳洲）的人口總量與人均 GDP 趨勢，為珠寶及高端消費品市場開發與戰略佈局提供數據支撐。",
         "sidebar_header": "設定與篩選條件",
         "lang_label": "選擇語言 / Language",
-        "country_label": "選擇目標國家",
-        "all_countries": "全區域 (Southeast Asia - 6國)",
+        "country_label": "選擇目標國家 / 區域",
+        "all_countries": "全亞太區域 (共 10 國/地區)",
         "metric_pop": "最新總人口數",
         "metric_gdp": "最新人均 GDP",
-        "metric_growth": "近5年人口平均成長率",
         "chart_pop_title": "各國總人口數趨勢 (2018-2023)",
         "chart_gdp_title": "各國人均 GDP 比較 (USD)",
         "table_title": "檢視世界銀行原始數據表格",
@@ -31,15 +30,14 @@ LANG = {
         "source_link": "世界銀行開放數據平台 (World Bank Open Data)"
     },
     "en": {
-        "title": "💎 Southeast Asia Macroeconomic & Consumption Potential Dashboard",
-        "intro": "This tool integrates the **World Bank Open API** to analyze population and GDP per capita trends across core Southeast Asian countries (Singapore, Thailand, Vietnam, Indonesia, Malaysia, Philippines), providing data-driven insights for jewelry and luxury market expansion.",
+        "title": "💎 APAC Macroeconomic & Consumption Potential Dashboard (SEA + CN, HK, JP, AU)",
+        "intro": "This tool integrates the **World Bank Open API** to analyze population and GDP per capita trends across Southeast Asia and key APAC economies (China, Hong Kong, Japan, Australia), providing data-driven insights for jewelry and luxury market expansion.",
         "sidebar_header": "Settings & Filters",
         "lang_label": "Language / 選擇語言",
-        "country_label": "Select Target Country",
-        "all_countries": "Southeast Asia (6 Countries)",
+        "country_label": "Select Target Country / Region",
+        "all_countries": "All APAC Region (10 Countries/Regions)",
         "metric_pop": "Latest Total Population",
         "metric_gdp": "Latest GDP per Capita",
-        "metric_growth": "5-Yr Avg Population Growth",
         "chart_pop_title": "Total Population Trend (2018-2023)",
         "chart_gdp_title": "GDP per Capita Comparison (USD)",
         "table_title": "View World Bank Raw Dataset",
@@ -63,12 +61,9 @@ st.sidebar.header(t["sidebar_header"])
 @st.cache_data(ttl=86400)
 def fetch_world_bank_data():
     countries = {
-        "Singapore": "SGP",
-        "Thailand": "THA",
-        "Vietnam": "VNM",
-        "Indonesia": "IDN",
-        "Malaysia": "MYS",
-        "Philippines": "PHL"
+        "Singapore": "SGP", "Thailand": "THA", "Vietnam": "VNM", 
+        "Indonesia": "IDN", "Malaysia": "MYS", "Philippines": "PHL",
+        "China": "CHN", "Hong Kong SAR": "HKG", "Japan": "JPN", "Australia": "AUS"
     }
     
     indicators = {
@@ -109,90 +104,39 @@ def fetch_world_bank_data():
         except Exception as e:
             continue
             
-    df = pd.DataFrame(all_data)
-    return df
+    return pd.DataFrame(all_data)
 
 # 載入數據
-with st.spinner("正在從世界銀行 (World Bank) API 載入最新真實數據..."):
+with st.spinner("正在載入 API 真實數據..."):
     df_wb = fetch_world_bank_data()
 
-# 若 API 失敗時的備用參考數據
-if df_wb.empty:
-    st.warning("API 連線逾時，已自動載入離線備用真實參考數據。")
-    years = [2018, 2019, 2020, 2021, 2022, 2023]
-    fallback_data = [
-        {"Country": "Singapore", "Year": y, "Population": 5600000 + (y-2018)*50000, "GDP_per_Capita": 64000 + (y-2018)*2000} for y in years
-    ] + [
-        {"Country": "Thailand", "Year": y, "Population": 71500000 + (y-2018)*100000, "GDP_per_Capita": 7800 + (y-2018)*300} for y in years
-    ] + [
-        {"Country": "Vietnam", "Year": y, "Population": 95500000 + (y-2018)*900000, "GDP_per_Capita": 3500 + (y-2018)*250} for y in years
-    ] + [
-        {"Country": "Indonesia", "Year": y, "Population": 268000000 + (y-2018)*2500000, "GDP_per_Capita": 4100 + (y-2018)*200} for y in years
-    ]
-    df_wb = pd.DataFrame(fallback_data)
-
-# 篩選選單
+# 篩選與顯示邏輯
 country_list = [t["all_countries"]] + list(df_wb["Country"].unique())
 selected_country_ui = st.sidebar.selectbox(t["country_label"], country_list)
 
-if selected_country_ui != t["all_countries"]:
-    df_filtered = df_wb[df_wb["Country"] == selected_country_ui]
-else:
-    df_filtered = df_wb
+df_filtered = df_wb if selected_country_ui == t["all_countries"] else df_wb[df_wb["Country"] == selected_country_ui]
 
-# 核心指標展示
-st.subheader(f"📊 {selected_country_ui} - 宏觀經濟與人口概況")
+# 核心指標
+st.subheader(f"📊 {selected_country_ui} - 概況")
 col1, col2, col3 = st.columns(3)
-
 latest_year = df_filtered["Year"].max()
 df_latest = df_filtered[df_filtered["Year"] == latest_year]
 
-total_pop = df_latest["Population"].sum()
-avg_gdp = df_latest["GDP_per_Capita"].mean()
-
-col1.metric(t["metric_pop"], f"{total_pop:,.0f}" if not pd.isna(total_pop) else "N/A")
-col2.metric(t["metric_gdp"], f"${avg_gdp:,.0f} USD" if not pd.isna(avg_gdp) else "N/A")
-col3.metric(t["metric_growth"], "1.1% - 1.4% (Avg)")
+col1.metric(t["metric_pop"], f"{df_latest['Population'].sum():,.0f}")
+col2.metric(t["metric_gdp"], f"${df_latest['GDP_per_Capita'].mean():,.0f} USD")
+col3.metric("覆蓋地區數", f"{df_filtered['Country'].nunique()}")
 
 st.divider()
 
-# 圖表區塊
-col_left, col_right = st.columns(2)
-
-with col_left:
+# 圖表
+c1, c2 = st.columns(2)
+with c1:
     st.subheader(t["chart_pop_title"])
-    fig_pop = px.line(
-        df_filtered,
-        x="Year",
-        y="Population",
-        color="Country",
-        markers=True,
-        labels={"Population": "Total Population", "Year": "Year"}
-    )
-    st.plotly_chart(fig_pop, use_container_width=True)
-
-with col_right:
+    st.plotly_chart(px.line(df_filtered, x="Year", y="Population", color="Country", markers=True), use_container_width=True)
+with c2:
     st.subheader(t["chart_gdp_title"])
-    fig_gdp = px.bar(
-        df_filtered[df_filtered["Year"] == latest_year],
-        x="Country",
-        y="GDP_per_Capita",
-        color="Country",
-        text_auto=".2s",
-        labels={"GDP_per_Capita": "GDP per Capita (USD)", "Country": "Country"}
-    )
-    st.plotly_chart(fig_gdp, use_container_width=True)
+    st.plotly_chart(px.bar(df_latest, x="Country", y="GDP_per_Capita", color="Country", text_auto=".2s"), use_container_width=True)
 
-# 原始數據表格
-with st.expander(t["table_title"]):
-    st.dataframe(df_filtered, use_container_width=True)
-
-# 頁尾明確標註數據來源
+# 頁尾來源標註
 st.markdown("---")
-st.markdown(f"""
-### {t['source_title']}
-- **{t['source_desc']}**
-- 🌐 數據來源機構：[World Bank Open Data (世界銀行開放數據)](https://data.worldbank.org/ )
-- 📊 擷取指標：總人口數 (`SP.POP.TOTL`)、人均 GDP (`NY.GDP.PCAP.CD`)
-- 💡 *Created by Senior Product Manager & Python Developer | Hosted on Streamlit Cloud & GitHub*
-""")
+st.markdown(f"### {t['source_title']}\n- {t['source_desc']}\n- 🌐 數據來源：[World Bank Open Data](https://data.worldbank.org/ )")
