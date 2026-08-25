@@ -374,34 +374,74 @@ with tab_channel:
     if channel_data.empty:
         st.warning(tx("尚未載入渠道資料。請在側邊欄上傳符合模板的渠道資料。", "No channel data is loaded. Upload a channel file matching the template from the sidebar."))
     else:
-        display_channel = channel_data[channel_data["country"].isin(selected_countries + ["ASEAN-6"])].copy()
+        # 國家資料與區域彙總分開：主畫面只呈現已選市場，ASEAN-6 留在下方的獨立參考區。
+        display_channel = channel_data[channel_data["country"].isin(selected_countries)].copy()
+        regional_channel = channel_data[channel_data["country"].eq("ASEAN-6")].copy()
         if display_channel.empty:
             st.info(tx("公開基準不涵蓋目前選定市場；請上傳各市場的官方零售或平台資料。", "Public benchmarks do not cover the selected markets. Upload official retail or platform data for each market."))
         else:
-            metric_options = display_channel["metric_type"].dropna().unique().tolist()
-            channel_metric = st.selectbox(tx("渠道指標", "Channel metric"), metric_options, key="channel_metric")
-            filtered_channel = display_channel[display_channel["metric_type"].eq(channel_metric)].copy()
-            units = filtered_channel["unit"].dropna().unique().tolist()
-            if len(units) > 1:
-                chosen_unit = st.selectbox(tx("單位", "Unit"), units, key="channel_unit")
-                filtered_channel = filtered_channel[filtered_channel["unit"].eq(chosen_unit)]
-            channel_fig = px.bar(
-                filtered_channel,
-                x="country",
-                y="value",
-                color="channel",
-                hover_data=["year", "unit", "scope", "source_name", "notes"],
-                labels={"country": tx("市場／範圍", "Market / scope"), "value": channel_metric, "channel": tx("渠道", "Channel")},
-                text_auto=".3s",
-            )
-            channel_fig.update_layout(height=420, margin=dict(l=0, r=0, t=20, b=0), legend_title_text="")
-            st.plotly_chart(channel_fig, use_container_width=True)
-            st.dataframe(
-                filtered_channel[["country", "year", "channel", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]],
-                use_container_width=True,
-                hide_index=True,
-            )
-            st.caption(tx("比較前先檢查 scope 與 unit。區域匯總與單一國家、GMV 與平台收入、零售銷售與品牌淨銷售都不可直接相加。", "Check scope and unit before comparing. Regional aggregates vs. country figures, GMV vs. platform revenue, retail sales vs. brand net sales cannot be added together."))
+            coverage_rows = []
+            for country in selected_countries:
+                country_rows = display_channel[display_channel["country"].eq(country)]
+                coverage_rows.append({
+                    tx("市場", "Market"): country,
+                    tx("資料狀態", "Data status"): tx("已提供", "Available") if not country_rows.empty else tx("待補充", "Missing"),
+                    tx("渠道", "Channels"): ", ".join(sorted(country_rows["channel"].dropna().unique())) if not country_rows.empty else "—",
+                    tx("可用指標", "Available metrics"): ", ".join(sorted(country_rows["metric_type"].dropna().unique())) if not country_rows.empty else "—",
+                })
+            st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
+            st.caption(tx("下列分頁彼此獨立。每個市場只顯示其本身的渠道資料與原始單位，不會與其他市場、或 ASEAN-6 區域匯總混合。", "The tabs below are independent. Each market shows only its own channel data and original units; it is not mixed with other markets or the ASEAN-6 regional aggregate."))
+
+            country_tabs = st.tabs(selected_countries)
+            for country, country_tab in zip(selected_countries, country_tabs):
+                with country_tab:
+                    country_data = display_channel[display_channel["country"].eq(country)].copy()
+                    if country_data.empty:
+                        st.warning(tx(f"{country} 暫無可追溯的渠道資料。請透過側邊欄補充官方零售、平台或內部資料。", f"No traceable channel data is available for {country}. Add official retail, platform or internal data through the sidebar."))
+                        continue
+
+                    metric_options = sorted(country_data["metric_type"].dropna().unique().tolist())
+                    country_metric = st.selectbox(
+                        tx("渠道指標", "Channel metric"),
+                        metric_options,
+                        key=f"channel_metric_{country}",
+                    )
+                    country_filtered = country_data[country_data["metric_type"].eq(country_metric)].copy()
+                    units = country_filtered["unit"].dropna().unique().tolist()
+                    if len(units) > 1:
+                        selected_unit = st.selectbox(
+                            tx("單位", "Unit"),
+                            units,
+                            key=f"channel_unit_{country}",
+                        )
+                        country_filtered = country_filtered[country_filtered["unit"].eq(selected_unit)].copy()
+
+                    channel_fig = px.bar(
+                        country_filtered,
+                        x="channel",
+                        y="value",
+                        color="channel",
+                        barmode="group",
+                        hover_data=["year", "unit", "scope", "source_name", "notes"],
+                        labels={"channel": tx("渠道", "Channel"), "value": country_metric},
+                        text_auto=".3s",
+                    )
+                    channel_fig.update_layout(height=390, margin=dict(l=0, r=0, t=20, b=0), legend_title_text="", showlegend=False)
+                    st.plotly_chart(channel_fig, use_container_width=True)
+                    st.dataframe(
+                        country_filtered[["year", "channel", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    st.caption(tx("本分頁只代表 " + country + "。GMV、零售銷售、平台收入及滲透率屬不同口徑，不能互相加總。", "This tab represents only " + country + ". GMV, retail sales, platform revenue and penetration use different definitions and cannot be added together."))
+
+            if not regional_channel.empty:
+                with st.expander(tx("ASEAN-6 區域基準（獨立參考，不納入國家圖表）", "ASEAN-6 regional benchmarks (separate reference; excluded from country charts)")):
+                    st.dataframe(
+                        regional_channel[["country", "year", "channel", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
 with tab_category:
     st.subheader(tx("品類損益：以一致口徑回答「家品、服飾還是其他」", "Category economics: answer 'home, fashion or other' with a consistent basis"))
