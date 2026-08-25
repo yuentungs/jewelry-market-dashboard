@@ -415,30 +415,95 @@ with tab_category:
         if display_category.empty:
             st.info(tx("選定市場目前沒有公開品類基準；請上傳內部或可追溯的外部資料。", "No public category benchmark is available for the selected markets. Upload internal or traceable external data."))
         else:
-            category_metric = st.selectbox(tx("品類指標", "Category metric"), display_category["metric_type"].dropna().unique().tolist(), key="category_metric")
+            # 預設選擇覆蓋最多所選市場的指標，而非按資料列順序任意選取。
+            metric_coverage = (
+                display_category.groupby("metric_type")["country"]
+                .nunique()
+                .sort_values(ascending=False)
+            )
+            metric_options = metric_coverage.index.tolist()
+            category_metric = st.selectbox(
+                tx("跨市場比較指標", "Cross-market comparison metric"),
+                metric_options,
+                format_func=lambda item: f"{item} — {metric_coverage[item]}/{len(selected_countries)} {tx('個已選市場有資料', 'selected markets covered')}",
+                key="category_metric",
+            )
             category_filtered = display_category[display_category["metric_type"].eq(category_metric)].copy()
-            units = category_filtered["unit"].dropna().unique().tolist()
-            if len(units) > 1:
-                category_unit = st.selectbox(tx("單位", "Unit"), units, key="category_unit")
-                category_filtered = category_filtered[category_filtered["unit"].eq(category_unit)]
-            category_fig = px.bar(
-                category_filtered,
-                x="category",
-                y="value",
-                color="country",
-                barmode="group",
-                hover_data=["year", "unit", "scope", "source_name", "notes"],
-                labels={"category": tx("品類", "Category"), "value": category_metric, "country": tx("市場", "Market")},
-                text_auto=".2s",
+
+            # 無論是否有相同指標，都保留每個已選市場的一行覆蓋狀態，避免介面誤導為只選到單一國家。
+            comparison_coverage = pd.DataFrame({"country": selected_countries})
+            comparison_coverage[tx("比較指標", "Comparison metric")] = category_metric
+            comparison_coverage[tx("資料狀態", "Data status")] = comparison_coverage["country"].map(
+                lambda country: tx("可比較", "Available") if country in set(category_filtered["country"]) else tx("缺少此指標", "Missing this metric")
             )
-            category_fig.update_layout(height=420, margin=dict(l=0, r=0, t=20, b=0), legend_title_text="")
-            st.plotly_chart(category_fig, use_container_width=True)
-            st.dataframe(
-                category_filtered[["country", "year", "channel", "category", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]],
-                use_container_width=True,
-                hide_index=True,
+            comparison_coverage[tx("可用指標", "Available metrics")] = comparison_coverage["country"].map(
+                display_category.groupby("country")["metric_type"].apply(lambda values: ", ".join(sorted(values.dropna().unique()))).to_dict()
+            ).fillna(tx("尚無公開品類資料", "No public category data"))
+            st.dataframe(comparison_coverage, use_container_width=True, hide_index=True)
+
+            missing_markets = comparison_coverage.loc[
+                comparison_coverage[tx("資料狀態", "Data status")].eq(tx("缺少此指標", "Missing this metric")),
+                "country",
+            ].tolist()
+            if missing_markets:
+                st.info(tx(
+                    f"{category_metric} 目前只覆蓋 {len(selected_countries) - len(missing_markets)}/{len(selected_countries)} 個已選市場；未覆蓋：{', '.join(missing_markets)}。下方不會以估算值補足。",
+                    f"{category_metric} currently covers {len(selected_countries) - len(missing_markets)}/{len(selected_countries)} selected markets; not covered: {', '.join(missing_markets)}. No estimates are used to fill gaps.",
+                ))
+
+            category_options = [tx("全部品類", "All categories")] + sorted(category_filtered["category"].dropna().unique().tolist())
+            selected_category = st.selectbox(tx("品類篩選", "Category filter"), category_options, key="category_name")
+            if selected_category != tx("全部品類", "All categories"):
+                category_filtered = category_filtered[category_filtered["category"].eq(selected_category)].copy()
+
+            comparison_view = st.radio(
+                tx("圖表模式", "Chart mode"),
+                [tx("原始值（按單位分面）", "Raw values (faceted by unit)"), tx("市場內品類指數（最高 = 100）", "Within-market category index (top = 100)")],
+                horizontal=True,
+                key="category_view_mode",
             )
-            st.warning(tx("請勿將「購買滲透率」解讀為收入份額。只有同年度、同市場、同渠道、同一貨幣與相同 metric_type 的資料，才可用於排名或加總。", "Do not interpret purchase penetration as a revenue share. Only records with the same year, market, channel, currency and metric type can be ranked or aggregated."))
+            if not category_filtered.empty:
+                plot_data = category_filtered.copy()
+                if comparison_view == tx("市場內品類指數（最高 = 100）", "Within-market category index (top = 100)"):
+                    denominators = plot_data.groupby(["country", "unit"])["value"].transform("max")
+                    plot_data["comparison_value"] = np.where(denominators > 0, plot_data["value"] / denominators * 100, np.nan)
+                    y_column = "comparison_value"
+                    y_label = tx("市場內品類指數（最高 = 100）", "Within-market category index (top = 100)")
+                    facet_column = None
+                else:
+                    y_column = "value"
+                    y_label = category_metric
+                    # 不同貨幣或時間單位不能直接共用數值軸，故按單位分面並獨立 Y 軸。
+                    facet_column = "unit" if plot_data["unit"].nunique() > 1 else None
+                category_fig = px.bar(
+                    plot_data,
+                    x="category",
+                    y=y_column,
+                    color="country",
+                    barmode="group",
+                    facet_col=facet_column,
+                    facet_col_wrap=3 if facet_column else None,
+                    hover_data=["year", "unit", "scope", "source_name", "notes"],
+                    labels={"category": tx("品類", "Category"), y_column: y_label, "country": tx("市場", "Market")},
+                    text_auto=".2s",
+                )
+                if facet_column:
+                    category_fig.update_yaxes(matches=None, showticklabels=True)
+                category_fig.update_layout(height=460, margin=dict(l=0, r=0, t=20, b=0), legend_title_text="")
+                st.plotly_chart(category_fig, use_container_width=True)
+                st.dataframe(
+                    category_filtered[["country", "year", "channel", "category", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            with st.expander(tx("檢視所有已選市場的品類資料", "View all selected-market category records")):
+                st.dataframe(
+                    display_category[["country", "year", "channel", "category", "metric_type", "value", "unit", "scope", "source_name", "source_url", "notes"]].sort_values(["country", "metric_type", "category"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            st.warning(tx("請勿將「購買滲透率」解讀為收入份額。原始值圖表按單位分面，避免跨幣別誤比；市場內指數僅比較各市場的品類結構。只有同年度、同渠道、同一幣別與相同 metric_type 的資料，才可用於絕對值排名或加總。", "Do not interpret purchase penetration as revenue share. Raw values are faceted by unit to avoid false cross-currency comparisons; the within-market index compares category structure only. Absolute-value ranking or aggregation requires the same year, channel, currency and metric type."))
 
 with tab_governance:
     st.subheader(tx("資料管理：補足缺口，而不是以估算填補", "Data governance: close gaps rather than filling them with estimates"))
