@@ -117,10 +117,15 @@ def get_demand_data() -> pd.DataFrame:
 
 
 @st.cache_data
-def load_public_benchmarks() -> pd.DataFrame:
+def load_public_benchmarks(file_mtime: float) -> pd.DataFrame:
     if not BENCHMARK_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(BENCHMARK_PATH)
+
+
+def get_public_benchmarks() -> pd.DataFrame:
+    file_mtime = BENCHMARK_PATH.stat().st_mtime if BENCHMARK_PATH.exists() else 0.0
+    return load_public_benchmarks(file_mtime)
 
 
 def read_uploaded_file(uploaded_file) -> pd.DataFrame:
@@ -171,7 +176,7 @@ def format_usd_m(value: float) -> str:
 
 
 def render_data_quality_table(selected_countries: list[str], user_data: pd.DataFrame) -> None:
-    public = load_public_benchmarks()
+    public = get_public_benchmarks()
     all_data = pd.concat([public, user_data], ignore_index=True, sort=False)
     coverage_rows = []
     for country in selected_countries:
@@ -363,7 +368,7 @@ with tab_demand:
 
 with tab_channel:
     st.subheader(tx("渠道規模：GMV、零售銷售與收入不可混算", "Channel scale: GMV, retail sales and revenue must not be mixed"))
-    public = load_public_benchmarks()
+    public = get_public_benchmarks()
     all_benchmarks = pd.concat([public, user_data], ignore_index=True, sort=False)
     channel_data = all_benchmarks[all_benchmarks.get("layer", pd.Series(dtype=str)).eq("Channel")].copy() if not all_benchmarks.empty else pd.DataFrame()
     if channel_data.empty:
@@ -400,7 +405,7 @@ with tab_channel:
 
 with tab_category:
     st.subheader(tx("品類損益：以一致口徑回答「家品、服飾還是其他」", "Category economics: answer 'home, fashion or other' with a consistent basis"))
-    public = load_public_benchmarks()
+    public = get_public_benchmarks()
     all_benchmarks = pd.concat([public, user_data], ignore_index=True, sort=False)
     category_data = all_benchmarks[all_benchmarks.get("layer", pd.Series(dtype=str)).eq("Category")].copy() if not all_benchmarks.empty else pd.DataFrame()
     if category_data.empty:
